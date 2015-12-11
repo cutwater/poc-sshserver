@@ -14,7 +14,6 @@
 
 #define USER "myuser"
 #define PASSWORD "mypassword"
-//#define SFTP_SERVER_PATH "/usr/lib/sftp-server"
 #define BUF_SIZE 1048576
 #define SESSION_END (SSH_CLOSED | SSH_CLOSED_ERROR)
 
@@ -72,7 +71,7 @@ static int pty_request(ssh_session session, ssh_channel channel,
 static int pty_resize(ssh_session session, ssh_channel channel,
                       int cols, int rows, int py, int px,
                       void* userdata) {
-    fprintf(stdout, "DEBUG: %s\n", __FUNCTION__);
+    fprintf(stderr, "DEBUG: %s\n", __FUNCTION__);
 
     (void) session;
     (void) channel;
@@ -93,30 +92,30 @@ static int pty_resize(ssh_session session, ssh_channel channel,
 
 static int exec_pty(const char* mode, const char* command,
                     struct channel_data* cdata) {
-    fprintf(stdout, "DEBUG: %s\n", __FUNCTION__);
+    fprintf(stderr, "DEBUG: %s\n", __FUNCTION__);
     cdata->pid = fork();
-    switch (cdata->pid) {
-        case -1:
-            close(cdata->pty_master);
-            close(cdata->pty_slave);
-            fprintf(stderr, "Failed to fork\n");
-            return SSH_ERROR;
-        case 0:
-            close(cdata->pty_master);
-            if (login_tty(cdata->pty_slave) != 0) {
-                exit(1);
-            }
-            execl("/bin/sh", "sh", mode, command, NULL);
-            exit(0);
-        default:
-            close(cdata->pty_slave);
-            cdata->child_stdout = cdata->child_stdin = cdata->pty_master;
+    if (cdata->pid < 0) {
+        fprintf(stderr, "DEBUG: fork-2, pid: %d\n", getpid());
+        close(cdata->pty_master);
+        close(cdata->pty_slave);
+        fprintf(stderr, "Failed to fork\n");
+        return SSH_ERROR;
+    } else if (cdata->pid == 0) {
+        close(cdata->pty_master);
+        if (login_tty(cdata->pty_slave) != 0) {
+            exit(1);
+        }
+        execl("/bin/sh", "sh", mode, command, NULL);
+        exit(0);
+    } else {
+        close(cdata->pty_slave);
+        cdata->child_stdout = cdata->child_stdin = cdata->pty_master;
     }
     return SSH_OK;
 }
 
 static int exec_nopty(const char* command, struct channel_data* cdata) {
-    fprintf(stdout, "DEBUG: %s('%s', <cdata>)\n", __FUNCTION__, command);
+    fprintf(stderr, "DEBUG: %s('%s', <cdata>)\n", __FUNCTION__, command);
 
     int in[2], out[2], err[2];
 
@@ -136,6 +135,7 @@ static int exec_nopty(const char* command, struct channel_data* cdata) {
     if (cdata->pid < 0) {
         goto fork_failed;
     } else if (cdata->pid == 0) {
+        fprintf(stderr, "DEBUG: exec_nopty fork() -> %d", getpid());
         /* Finish the plumbing in the child process */
         close(in[1]);
         close(out[0]);
@@ -175,7 +175,7 @@ stdin_failed:
 
 static int exec_request(ssh_session session, ssh_channel channel,
                         const char* command, void* userdata) {
-    fprintf(stdout, "DEBUG: %s\n", __FUNCTION__);
+    fprintf(stderr, "DEBUG: %s\n", __FUNCTION__);
 
     (void) session;
     (void) channel;
@@ -195,7 +195,7 @@ static int exec_request(ssh_session session, ssh_channel channel,
 
 static int shell_request(ssh_session session, ssh_channel channel,
                          void* userdata) {
-    fprintf(stdout, "DEBUG: %s\n", __FUNCTION__);
+    fprintf(stderr, "DEBUG: %s\n", __FUNCTION__);
 
     (void) session;
     (void) channel;
@@ -214,7 +214,7 @@ static int shell_request(ssh_session session, ssh_channel channel,
 
 static int subsystem_request(ssh_session session, ssh_channel channel,
                              const char* subsystem, void* userdata) {
-    fprintf(stdout, "DEBUG: %s\n", __FUNCTION__);
+    fprintf(stderr, "DEBUG: %s\n", __FUNCTION__);
 
     (void) session;
     (void) channel;
@@ -226,7 +226,7 @@ static int subsystem_request(ssh_session session, ssh_channel channel,
 
 static int auth_password(ssh_session session, const char* user,
                          const char* password, void* userdata) {
-    fprintf(stdout, "DEBUG: %s\n", __FUNCTION__);
+    fprintf(stderr, "DEBUG: %s\n", __FUNCTION__);
 
     (void) session;
 
@@ -242,7 +242,7 @@ static int auth_password(ssh_session session, const char* user,
 }
 
 static ssh_channel channel_open(ssh_session session, void* userdata) {
-    fprintf(stdout, "DEBUG: %s\n", __FUNCTION__);
+    fprintf(stderr, "DEBUG: %s\n", __FUNCTION__);
 
     struct session_data* sdata = (struct session_data*) userdata;
 
@@ -252,7 +252,7 @@ static ssh_channel channel_open(ssh_session session, void* userdata) {
 
 static int data_function(ssh_session session, ssh_channel channel, void* data,
                          uint32_t len, int is_stderr, void* userdata) {
-    fprintf(stdout, "DEBUG: %s\n", __FUNCTION__);
+    fprintf(stderr, "DEBUG: %s\n", __FUNCTION__);
 
     (void) session;
     (void) channel;
@@ -268,7 +268,7 @@ static int data_function(ssh_session session, ssh_channel channel, void* data,
 }
 
 static int process_stdout(socket_t fd, int revents, void* userdata) {
-    fprintf(stdout, "DEBUG: %s\n", __FUNCTION__);
+    fprintf(stderr, "DEBUG: %s\n", __FUNCTION__);
 
     char buf[BUF_SIZE];
     ssh_channel channel = (ssh_channel) userdata;
@@ -286,7 +286,7 @@ static int process_stdout(socket_t fd, int revents, void* userdata) {
 }
 
 static int process_stderr(socket_t fd, int revents, void* userdata) {
-    fprintf(stdout, "DEBUG: %s\n", __FUNCTION__);
+    fprintf(stderr, "DEBUG: %s\n", __FUNCTION__);
 
     char buf[BUF_SIZE];
     ssh_channel channel = (ssh_channel) userdata;
@@ -437,6 +437,8 @@ static void sigchld_handler(int signo) {
 
 int main(int argc, char** argv) {
     /* Set up SIGCHLD handler. */
+    fprintf(stderr, "DEBUG: main process, pid: %d\n", getpid());
+
     struct sigaction sa;
     sa.sa_handler = sigchld_handler;
     sigemptyset(&sa.sa_mask);
@@ -457,7 +459,7 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Error: %s\n", ssh_get_error(bind));
     }
 
-    int log_verbosity = SSH_LOG_FUNCTIONS;
+    int log_verbosity = SSH_LOG_NOLOG;
     if (ssh_bind_options_set(bind, SSH_BIND_OPTIONS_LOG_VERBOSITY,
                              &log_verbosity) != SSH_OK) {
         fprintf(stderr, "Error: %s\n", ssh_get_error(bind));
@@ -478,6 +480,7 @@ int main(int argc, char** argv) {
         if (ssh_bind_accept(bind, session) == SSH_OK) {
             pid_t pid = fork();
             if (pid == 0) {
+                fprintf(stderr, "DEBUG: fork-1, pid: %d\n", getpid());
                 ssh_bind_free(bind);
 
                 ssh_event event = ssh_event_new();
