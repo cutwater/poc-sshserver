@@ -49,7 +49,9 @@ static void set_default_keys(ssh_bind bind) {
 static int pty_request(ssh_session session, ssh_channel channel,
                        const char* term, int cols, int rows, int py, int px,
                        void* userdata) {
-    fprintf(stdout, "DEBUG: %s\n", __FUNCTION__);
+    (void) session;
+    (void) channel;
+    (void) term;
 
     struct channel_data* cdata = (struct channel_data*) userdata;
 
@@ -71,6 +73,10 @@ static int pty_resize(ssh_session session, ssh_channel channel,
                       int cols, int rows, int py, int px,
                       void* userdata) {
     fprintf(stdout, "DEBUG: %s\n", __FUNCTION__);
+
+    (void) session;
+    (void) channel;
+
     struct channel_data* cdata = (struct channel_data*) userdata;
 
     cdata->winsize->ws_row = (unsigned short) rows;
@@ -127,22 +133,21 @@ static int exec_nopty(const char* command, struct channel_data* cdata) {
     }
 
     cdata->pid = fork();
-    switch(cdata->pid) {
-        case -1:
-            goto fork_failed;
-        case 0:
-            /* Finish the plumbing in the child process */
-            close(in[1]);
-            close(out[0]);
-            close(err[0]);
-            dup2(in[0], STDIN_FILENO);
-            dup2(out[1], STDOUT_FILENO);
-            dup2(err[1], STDERR_FILENO);
-            close(in[0]);
-            close(out[1]);
-            close(err[1]);
-            execl("/bin/sh", "sh", "-c", command, NULL);
-            exit(0);
+    if (cdata->pid < 0) {
+        goto fork_failed;
+    } else if (cdata->pid == 0) {
+        /* Finish the plumbing in the child process */
+        close(in[1]);
+        close(out[0]);
+        close(err[0]);
+        dup2(in[0], STDIN_FILENO);
+        dup2(out[1], STDOUT_FILENO);
+        dup2(err[1], STDERR_FILENO);
+        close(in[0]);
+        close(out[1]);
+        close(err[1]);
+        execl("/bin/sh", "sh", "-c", command, NULL);
+        exit(0);
     }
 
     close(in[0]);
@@ -172,6 +177,9 @@ static int exec_request(ssh_session session, ssh_channel channel,
                         const char* command, void* userdata) {
     fprintf(stdout, "DEBUG: %s\n", __FUNCTION__);
 
+    (void) session;
+    (void) channel;
+
     struct channel_data* cdata = (struct channel_data*) userdata;
 
     if (cdata->pid > 0) {
@@ -189,6 +197,9 @@ static int shell_request(ssh_session session, ssh_channel channel,
                          void* userdata) {
     fprintf(stdout, "DEBUG: %s\n", __FUNCTION__);
 
+    (void) session;
+    (void) channel;
+
     struct channel_data* cdata = (struct channel_data*) userdata;
 
     if (cdata->pid > 0) {
@@ -205,9 +216,10 @@ static int subsystem_request(ssh_session session, ssh_channel channel,
                              const char* subsystem, void* userdata) {
     fprintf(stdout, "DEBUG: %s\n", __FUNCTION__);
 
-//    if (strcmp(subsystem, "sftp") == 0) {
-//        return exec_request(session, channel, SFTP_SERVER_PATH, userdata);
-//    }
+    (void) session;
+    (void) channel;
+    (void) subsystem;
+    (void) userdata;
 
     return SSH_ERROR;
 }
@@ -216,6 +228,8 @@ static int auth_password(ssh_session session, const char* user,
                          const char* password, void* userdata) {
     fprintf(stdout, "DEBUG: %s\n", __FUNCTION__);
 
+    (void) session;
+
     struct session_data* sdata = (struct session_data*) userdata;
 
     if (strcmp(user, USER) == 0 && strcmp(password, PASSWORD) == 0) {
@@ -223,7 +237,7 @@ static int auth_password(ssh_session session, const char* user,
         return SSH_AUTH_SUCCESS;
     }
 
-    sdata->auth_attemnts;
+    ++ sdata->auth_attemnts;
     return SSH_AUTH_DENIED;
 }
 
@@ -239,6 +253,10 @@ static ssh_channel channel_open(ssh_session session, void* userdata) {
 static int data_function(ssh_session session, ssh_channel channel, void* data,
                          uint32_t len, int is_stderr, void* userdata) {
     fprintf(stdout, "DEBUG: %s\n", __FUNCTION__);
+
+    (void) session;
+    (void) channel;
+    (void) is_stderr;
 
     struct channel_data* cdata = (struct channel_data*) userdata;
 
@@ -368,7 +386,7 @@ static void handle_session(ssh_event event, ssh_session session) {
         }
 
         /* Executed only once when child process starts. */
-        printf("%p\n", cdata.child_stdout, cdata.child_stderr);
+        printf("%d %d\n", cdata.child_stdout, cdata.child_stderr);
         cdata.event = event;
         if (cdata.child_stdout != -1) {
             if (ssh_event_add_fd(event, cdata.child_stdout, POLLIN,
@@ -412,6 +430,8 @@ static void handle_session(ssh_event event, ssh_session session) {
 }
 
 static void sigchld_handler(int signo) {
+    (void) signo;
+
     while (waitpid(-1, NULL, WNOHANG) > 0);
 }
 
@@ -448,8 +468,6 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
 
-    #pragma clang diagnostic push
-    #pragma clang diagnostic ignored "-Wmissing-noreturn"
     while (1) {
         ssh_session session = ssh_new();
         if (!session) {
@@ -480,7 +498,6 @@ int main(int argc, char** argv) {
         ssh_disconnect(session);
         ssh_free(session);
     }
-    #pragma clang diagnostic pop
 
     ssh_bind_free(bind);
     ssh_finalize();
