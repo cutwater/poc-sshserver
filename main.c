@@ -95,7 +95,7 @@ static int exec_pty(const char* mode, const char* command,
     fprintf(stderr, "DEBUG: %s\n", __FUNCTION__);
     cdata->pid = fork();
     if (cdata->pid < 0) {
-        fprintf(stderr, "DEBUG: fork-2, pid: %d\n", getpid());
+        fprintf(stderr, "DEBUG: exec_pty fork(), pid: %d\n", getpid());
         close(cdata->pty_master);
         close(cdata->pty_slave);
         fprintf(stderr, "Failed to fork\n");
@@ -135,7 +135,7 @@ static int exec_nopty(const char* command, struct channel_data* cdata) {
     if (cdata->pid < 0) {
         goto fork_failed;
     } else if (cdata->pid == 0) {
-        fprintf(stderr, "DEBUG: exec_nopty fork() -> %d", getpid());
+        fprintf(stderr, "DEBUG: exec_nopty fork(), pid: %d\n", getpid());
         /* Finish the plumbing in the child process */
         close(in[1]);
         close(out[0]);
@@ -381,12 +381,11 @@ static void handle_session(ssh_event event, ssh_session session) {
             ssh_channel_close(sdata.channel);
         }
 
-        if (cdata.event != NULL || cdata.pid != 0) {
+        if (cdata.event != NULL || cdata.pid == 0) {
             continue;
         }
 
         /* Executed only once when child process starts. */
-        printf("%d %d\n", cdata.child_stdout, cdata.child_stderr);
         cdata.event = event;
         if (cdata.child_stdout != -1) {
             if (ssh_event_add_fd(event, cdata.child_stdout, POLLIN,
@@ -404,8 +403,9 @@ static void handle_session(ssh_event event, ssh_session session) {
                 ssh_channel_close(sdata.channel);
             }
         }
+
     } while(ssh_channel_is_open(sdata.channel)
-            && (cdata.pid != 0 || waitpid(cdata.pid, &rc, WNOHANG)));
+            && (cdata.pid == 0 || waitpid(cdata.pid, &rc, WNOHANG) == 0));
 
     close(cdata.pty_master);
     close(cdata.child_stdin);
@@ -422,6 +422,9 @@ static void handle_session(ssh_event event, ssh_session session) {
     } else if (cdata.pid > 0) {
         kill(cdata.pid, SIGKILL);
     }
+
+    ssh_channel_send_eof(sdata.channel);
+    ssh_channel_close(sdata.channel);
 
     /* Wait up to 5 seconds for the client to terminate the session. */
     for (n = 0; n < 50 && (ssh_get_status(session) & SESSION_END) == 0; n++) {
@@ -480,7 +483,7 @@ int main(int argc, char** argv) {
         if (ssh_bind_accept(bind, session) == SSH_OK) {
             pid_t pid = fork();
             if (pid == 0) {
-                fprintf(stderr, "DEBUG: fork-1, pid: %d\n", getpid());
+                fprintf(stderr, "DEBUG: main fork(), pid: %d\n", getpid());
                 ssh_bind_free(bind);
 
                 ssh_event event = ssh_event_new();
